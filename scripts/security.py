@@ -11,8 +11,8 @@ class PlxSecurity():
 	def __init__(self):
 		'''Parameters Inicialization '''
 		self.rospy = rospy
-		self.secure_vel_topic = self.rospy.get_param("secure_vel_topic","/secure_cmd_vel")
-		self.secure_mode_topic = self.rospy.get_param("secure_mode_topic","/secure_mode")
+		self.insecure_vel_topic = self.rospy.get_param("insecure_vel_topic","/insecure_cmd_vel")
+		self.insecure_mode_topic = self.rospy.get_param("insecure_mode_topic","/insecure_mode")
 		self.lrf_top_topic = self.rospy.get_param("laser_top_topic", "/RosAria/S3Series_1_laserscan")
 		self.lrf_floor_topic = self.rospy.get_param("sonar_env_topic", "/scan")
 		self.sonar_topic = self.rospy.get_param("sonar_env_topic", "/RosAria/sonar")
@@ -35,14 +35,15 @@ class PlxSecurity():
 		if self.use_sonar:
 			self.sub_sonar = self.rospy.Subscriber(self.sonar_topic, PointCloud, self.callback_sonar)
 		'''Publishers'''
-		self.pub_secure_vel = self.rospy.Publisher(self.secure_vel_topic, Twist, queue_size = 10)
-		self.pub_secure_mode = self.rospy.Publisher(self.secure_mode_topic, Bool, queue_size = 10)
+		self.pub_insecure_vel = self.rospy.Publisher(self.insecure_vel_topic, Twist, queue_size = 10)
+		self.pub_insecure_mode = self.rospy.Publisher(self.insecure_mode_topic, Bool, queue_size = 10)
 		'''Node Configuration'''
 		self.rospy.init_node("plx_security", anonymous = True)
 		self.rate = self.rospy.Rate(self.security_rate)
 		self.sonar_offset_front_x = 0.331
 		self.sonar_offset_back_x = -0.331
-		self.change = False
+		self.change_sonar = False
+		self.vel_insecure = Twist()
 		self.main_security()
 
 	def callback_lrf_top(self, msg):
@@ -52,17 +53,35 @@ class PlxSecurity():
 		pass
 	
 	def callback_sonar(self,msg):
-		self.sonar_front_left_x = msg.points[0].x
-		self.sonar_front_left_y = msg.points[0].y
-		self.sonar_front_right_x = msg.points[3].x
-		self.sonar_front_right_y = msg.points[3].y
-		print(self.sonar_front_left_x-0.331, self.sonar_front_right_x-0.331)
-		self.change = True
+		self.sonar_front_left_x = float(msg.points[0].x)-0.331
+		#self.sonar_front_left_y = msg.points[0].y
+		self.sonar_front_right_x = float(msg.points[3].x)-0.331
+		#self.sonar_front_right_y = msg.points[3].y
+		#print(self.sonar_front_left_x-0.331, self.sonar_front_right_x-0.331)
+		self.change_sonar = True
 		return
 
 	def main_security(self):
 		while not self.rospy.is_shutdown():
-			if self.change:
+			if self.change_sonar:
+				if self.slow_distance_sonar < self.stop_distance_sonar:
+					dist_sonar = self.stop_distance_sonar
+				else:
+					dist_sonar = self.slow_distance_sonar
+				if self.sonar_front_left_x <= self.sonar_front_right_x:
+					current_dist = self.sonar_front_left_x
+				else:
+					current_dist = self.sonar_front_right_x
+				print(current_dist, dist_sonar)
+				if current_dist < dist_sonar:
+					vel_sonar = self.slow_speed_sonar*(current_dist - self.stop_distance_sonar)/(self.slow_distance_sonar-self.stop_distance_sonar)
+					#print(vel_sonar, current_dist, dist_sonar)					
+					self.vel_insecure.linear.x = vel_sonar
+					self.pub_insecure_mode.publish(True)
+					self.pub_insecure_vel.publish(self.vel_insecure)
+					self.change_sonar = False
+				else:
+					self.pub_insecure_mode.publish(False)
 				#print(map(ord, self.sonar_pointcloud.data))
 				pass
 			self.rate.sleep()
