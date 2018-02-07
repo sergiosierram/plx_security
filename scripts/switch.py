@@ -26,22 +26,23 @@ class Switch():
 		self.insecure_mode = False
 		self.change = False
 		self.msg = Twist()
+		self.vel = Twist()
 		self.main_switch()
-
+	'''
 	def vel_format(self,data):
 		self.msg.linear.x, self.msg.linear.y, self.msg.linear.z, = data.linear.x, data.linear.y, data.linear.z
 		self.msg.angular.x, self.msg.angular.y, self.msg.angular.z, = data.angular.x, data.angular.y, data.angular.z
 		return self.msg
-
+	'''
 	def callback_aux_vel(self, data):
-		msg = self.vel_format(data)
-		self.aux_vel = msg
+		#msg = self.vel_format(data)
+		self.aux_vel = data
 		self.change = True
 		return
 
 	def callback_insecure_vel(self, data):
-		msg = self.vel_format(data)
-		self.insecure_vel = msg
+		#msg = self.vel_format(data)
+		self.insecure_vel = data
 		self.change = True
 		return
 
@@ -53,10 +54,18 @@ class Switch():
 	def main_switch(self):
 		while not self.rospy.is_shutdown():
 			if self.change:
-				if self.insecure_mode == False:
-					self.pub_final_vel.publish(self.aux_vel)
+				if self.insecure_mode == True:
+					if self.aux_vel.linear.x > self.insecure_vel.linear.x:
+						print("a")
+						self.vel.linear.x = self.insecure_vel.linear.x
+						self.vel.angular.x = self.aux_vel.angular.x
+						self.pub_final_vel.publish(self.vel)
+					else:
+						print("b")
+						self.pub_final_vel.publish(self.aux_vel)
 				else:
-					self.pub_final_vel.publish(self.insecure_vel)
+					print("c")
+					self.pub_final_vel.publish(self.aux_vel)
 				self.change = False
 			self.rate.sleep()
 
