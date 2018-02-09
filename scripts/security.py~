@@ -10,7 +10,7 @@ from sys import stdin
 class PlxSecurity():
 	def __init__(self):
 		'''Parameters Inicialization '''
-		self.rospy = rospy																				#Rospy object inicialization
+		self.rospy = rospy	#Rospy object inicialization
 		self.aux_cmd_vel_topic = self.rospy.get_param("aux_cmd_vel_topic", "/aux_cmd_vel")				#ROS Parameter: topic name of auxiliary velocity
 		self.insecure_vel_topic = self.rospy.get_param("insecure_vel_topic","/insecure_cmd_vel")		#ROS Parameter: topic name of insecure velocity
 		self.insecure_mode_topic = self.rospy.get_param("insecure_mode_topic","/insecure_mode")			#ROS Parameter: topic name of insecure mode
@@ -25,79 +25,82 @@ class PlxSecurity():
 		self.slow_distance = {"lrf": self.rospy.get_param("slow_distance_lrf", 0.6),
 							  "sonar": self.rospy.get_param("slow_distance_sonar", 0.35)}	#ROS Parameters: Final distance at which velocity will be disabled
 		self.slow_speed = {"lrf": self.rospy.get_param("slow_speed", 0.3),
-						   "sonar": self.rospy.get_param("slow_speed_sonar", 0.1)}			#ROS Parameters: Maximum speed at velocity limitation zone
-		self.robot_params = {"w": self.rospy.get_param("robot_width", 0.5),
-							 "l": self.rospy.get_param("robot_length", 0.696)}				#ROS Parameters: Robot geometry parameters
-		self.width_ratio = self.rospy.get_param("width_ratio", 2.0)							#ROS Parameter: Scaling factor of velocity limitation zone
-		self.security_rate = self.rospy.get_param("security_rate", 20)						#ROS Parameter: Node performance rate
+						   "sonar": self.rospy.get_param("slow_speed_sonar", 0.1)}
+		self.robot_params = {
+							 "w": self.rospy.get_param("robot_width", 0.5),
+							 "l": self.rospy.get_param("robot_length", 0.696)
+							}
+		self.width_ratio = self.rospy.get_param("width_ratio", 2.0)
+		self.security_rate = self.rospy.get_param("security_rate", 20)
 		'''Subscribers'''
-		self.sub_aux_cmd_vel = self.rospy.Subscriber(self.aux_cmd_vel_topic, Twist,self.callback_aux_cmd_vel)	#Definition of aux velocity subscriber
-		if self.use_sensor["lrf_top"]: 																		#Conditionated subscription to top lrf topic
-			self.sub_lrf_top = self.rospy.Subscriber(self.lrf_top_topic, LaserScan, self.callback_lrf_top)	#Definition of top lrf subscriber
-		if self.use_sensor["lrf_floor"]:																	#Conditionated subscription to floor lrf topic
-			self.sub_lrf_floor = self.rospy.Subscriber(self.lrf_floor_topic, LaserScan, self.callback_lrf_floor) #Definition of floor lrf subscriber
-		if self.use_sensor["sonar"]:																		#Conditionated subscription to sonar	
-			self.sub_sonar = self.rospy.Subscriber(self.sonar_topic, PointCloud, self.callback_sonar)		#Definition of sonar subscriber
+		self.sub_aux_cmd_vel = self.rospy.Subscriber(self.aux_cmd_vel_topic, Twist,self.callback_aux_cmd_vel)
+		if self.use_sensor["lrf_top"]: 
+			self.sub_lrf_top = self.rospy.Subscriber(self.lrf_top_topic, LaserScan, self.callback_lrf_top)
+		if self.use_sensor["lrf_floor"]:
+			self.sub_lrf_floor = self.rospy.Subscriber(self.lrf_floor_topic, LaserScan, self.callback_lrf_floor)
+		if self.use_sensor["sonar"]:
+			self.sub_sonar = self.rospy.Subscriber(self.sonar_topic, PointCloud, self.callback_sonar)
 		'''Publishers'''
-		self.pub_insecure_vel = self.rospy.Publisher(self.insecure_vel_topic, Twist, queue_size = 10)		#Definition of insecure vel publisher
-		self.pub_insecure_mode = self.rospy.Publisher(self.insecure_mode_topic, Bool, queue_size = 10)		#Definition of insecure mode publisher
+		self.pub_insecure_vel = self.rospy.Publisher(self.insecure_vel_topic, Twist, queue_size = 10)
+		self.pub_insecure_mode = self.rospy.Publisher(self.insecure_mode_topic, Bool, queue_size = 10)
 		'''Node Configuration'''
-		self.rospy.init_node("plx_security", anonymous = True)		#Node inicialization
-		self.rate = self.rospy.Rate(self.security_rate)				#Node rate configuration
-		self.sonar_offset_front_x = 0.331							#Distance in mm at which the sonar is located
-		self.cmd_vel_x = 0											#Inicialization of velocity value
-		self.vel_insecure = Twist()									#Velocity definition as Twist value linear[x, y, z] angular[x, y, z]
-		self.change = {"lrf_top": False,
+		self.rospy.init_node("plx_security", anonymous = True)
+		self.rate = self.rospy.Rate(self.security_rate)
+		self.sonar_offset_front_x = 0.331
+		self.cmd_vel_x = 0
+		self.vel_insecure = Twist()
+		self.change = {
+					   "lrf_top": False,
 					   "lrf_floor": False,
-					   "sonar": False}				#Variables for validation of new incoming data 
-		self.lrf_top = {"angle_min":0,
+					   "sonar": False
+					  }
+		self.lrf_top = {
+						"angle_min":0,
 						"angle_max":0,
 						"angle_inc":0,
 						"ranges": [],
-						"offset": 0}				#Attributes of the upper LRF data message
-		self.lrf_floor = {"angle_min": 0,
+						"offset": 0#0.26
+					   }
+		self.lrf_floor = {
+						  "angle_min": 0,
 						  "angle_max": 0,
 						  "angle_inc": 0,
 						  "ranges": [],
-						  "offset": 0}				#Attributes of the floor LRF data message
-		self.main_security()						#Call of main node function
+						  "offset": 0
+						 }
+		self.main_security()
 	
 	def polar_2_cartesian(self,laser_params):
-		'''Function for polar coordinates to cartesian coordinates conversion'''
-		angles = np.linspace(laser_params["angle_min"],laser_params["angle_max"],len(laser_params["ranges"]))	#Array of laser angles
-		ranges = np.array(laser_params["ranges"])			#Array of laser ranges
-		ranges[np.nonzero(ranges == -1)] = float("NaN")		#Discarding of not useful values
-		y = ranges*np.sin(angles)							#Y coordinate calculation
-		x = ranges*np.cos(angles) - laser_params["offset"] 	#X coordinate calculation. Offset is already contemplated by RosAria
-		return x,y											#X, Y coordinates
+		angles = np.linspace(laser_params["angle_min"],laser_params["angle_max"],len(laser_params["ranges"]))
+		ranges = np.array(laser_params["ranges"])
+		ranges[np.nonzero(ranges == -1)] = float("NaN")
+		y = ranges*np.sin(angles)
+		x = ranges*np.cos(angles) - laser_params["offset"] 
+		return x,y
 		
 	def is_inside(self,x,y,p1,p2):
-		'''Function to determine wich laser point within a validation zone is the closest one to the robot.
-		The validation zone is rectangle defined by p1 and p2'''
-		x_coor = [p1[0],p2[0]]				#X coordinates of p1 and p2 points
-		y_coor = [p1[1],p2[1]]				#Y coordinates of p1 and p2 points
-		is_inside_x = np.zeros(x.shape)		#Auxiliary array to store the x coordinates of the point in the validation zone
-		is_inside_y = np.zeros(y.shape)		#Auxiliary array to store the y coordinates of the point in the validation zone
-		is_inside_xy = np.zeros(x.shape)	#Auxiliary array to validate how many points yield in the validation zone
-		is_inside_x = np.where(np.logical_and(x>=min(x_coor),x<=max(x_coor)),1,0)	#Finding of x coordinates in the validation zone
-		is_inside_y = np.where(np.logical_and(y>=min(y_coor),y<=max(y_coor)),1,0) 	#Finding of y coordinates in the validation zone
-		indices = np.logical_and(is_inside_x==1,is_inside_y==1)						#Extracting of the indices of the points in the validation zone
-		is_inside_xy[indices] = 1								#Updating of auxiliary array.
-		if np.sum(is_inside_xy)>0:								#Condition to validate the presence of at least one point in the validation zone
-			is_inside = True									#Checking variable of points inside the zone
-			d = np.amin(np.sqrt(x[indices]**2+y[indices]**2))	#Calculation of the minimum point distance to the robot
+		x_coor = [p1[0],p2[0]]
+		y_coor = [p1[1],p2[1]]
+		is_inside_x = np.zeros(x.shape)
+		is_inside_y = np.zeros(y.shape)
+		is_inside_xy = np.zeros(x.shape)
+		is_inside_x = np.where(np.logical_and(x>=min(x_coor),x<=max(x_coor)),1,0)
+		is_inside_y = np.where(np.logical_and(y>=min(y_coor),y<=max(y_coor)),1,0) 	
+		indices = np.logical_and(is_inside_x==1,is_inside_y==1)
+		is_inside_xy[indices] = 1
+		if np.sum(is_inside_xy)>0:
+			is_inside = True
+			d = np.amin(np.sqrt(x[indices]**2+y[indices]**2))
 		else:
-			is_inside = False									#Checking variable meaning no points inside the zone
-			d = -1												#Negative distance meaning no points inside the boz
+			is_inside = False
+			d = -1
 		return is_inside,d
 		
 	def callback_aux_cmd_vel(self, msg):
-		'''Callback function invoked when a message of the auxiliary velocity is received'''
-		self.cmd_vel_x = msg.linear.x 						#Storage of linear velocity in x direction
+		self.cmd_vel_x = msg.linear.x
 		return
 		
 	def callback_lrf_top(self, msg):
-		'''Callback function invoked when a message of the top lrf is received'''
 		self.lrf_top["angle_min"] = msg.angle_min
 		self.lrf_top["angle_max"] = msg.angle_max
 		self.lrf_top["angle_inc"] = msg.angle_increment
