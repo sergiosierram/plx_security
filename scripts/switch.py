@@ -56,15 +56,17 @@ class Switch():
 			if self.change:
 				if self.insecure_mode == True:
 					if self.aux_vel.linear.x > self.insecure_vel.linear.x:
-						print("a")
+						print("Limiting Velocity")
 						self.vel.linear.x = self.insecure_vel.linear.x
 						self.vel.angular.x = self.aux_vel.angular.x
+						self.vel.angular.y = self.aux_vel.angular.y
+						self.vel.angular.z = self.aux_vel.angular.z
 						self.pub_final_vel.publish(self.vel)
 					else:
-						print("b")
+						print("Free Velocity - Insecure Zone")
 						self.pub_final_vel.publish(self.aux_vel)
 				else:
-					print("c")
+					print("Free Velocity")
 					self.pub_final_vel.publish(self.aux_vel)
 				self.change = False
 			self.rate.sleep()

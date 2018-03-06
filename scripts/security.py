@@ -21,15 +21,21 @@ class PlxSecurity():
 						   "lrf_floor": self.rospy.get_param("use_lrf_top", False),
 						   "sonar" : self.rospy.get_param("use_sonar", True)}				#ROS Parameters: what sensors are going to be used 
 		self.stop_distance = {"lrf": self.rospy.get_param("stop_distance_lrf", 0.3),
-							  "sonar": self.rospy.get_param("stop_distance_sonar", 0.25}	#ROS Parameters: Initial distance at which velocity will be limited
+							  "sonar": self.rospy.get_param("stop_distance_sonar", 0.25)}	#ROS Parameters: Initial distance at which velocity will be limited
 		self.slow_distance = {"lrf": self.rospy.get_param("slow_distance_lrf", 0.6),
 							  "sonar": self.rospy.get_param("slow_distance_sonar", 0.35)}	#ROS Parameters: Final distance at which velocity will be disabled
 		self.slow_speed = {"lrf": self.rospy.get_param("slow_speed", 0.3),
 						   "sonar": self.rospy.get_param("slow_speed_sonar", 0.1)}			#ROS Parameters: Maximum speed at velocity limitation zone
 		self.robot_params = {"w": self.rospy.get_param("robot_width", 0.5),
 							 "l": self.rospy.get_param("robot_length", 0.696)}				#ROS Parameters: Robot geometry parameters
-		self.width_ratio = self.rospy.get_param("width_ratio", 2.0)							#ROS Parameter: Scaling factor of velocity limitation zone
-		self.security_rate = self.rospy.get_param("security_rate", 20)						#ROS Parameter: Node performance rate
+		self.width_ratio = self.rospy.get_param("width_ratio", 1.5)							#ROS Parameter: Scaling factor of velocity limitation zone
+		self.security_rate = self.rospy.get_param("security_rate", 50)						#ROS Parameter: Node performance rate
+		self.sonar_offset_front_x = 0.331													#Distance in mm at which the sonar is located
+		self.cmd_vel_x = 0											#Inicialization of velocity value
+		self.vel_insecure = Twist()									#Velocity definition as Twist value linear[x, y, z] angular[x, y, z]
+		self.change = {"lrf_top": False, "lrf_floor": False, "sonar": False}				#Variables for validation of new incoming data 
+		self.lrf_top = {"angle_min":0, "angle_max":0, "angle_inc":0, "ranges": [], "offset": 0}				#Attributes of the upper LRF data message
+		self.lrf_floor = {"angle_min": 0, "angle_max": 0, "angle_inc": 0, "ranges": [], "offset": 0}		#Attributes of the floor LRF data message
 		'''Subscribers'''
 		self.sub_aux_cmd_vel = self.rospy.Subscriber(self.aux_cmd_vel_topic, Twist,self.callback_aux_cmd_vel)	#Definition of aux velocity subscriber
 		if self.use_sensor["lrf_top"]: 																		#Conditionated subscription to top lrf topic
@@ -44,22 +50,6 @@ class PlxSecurity():
 		'''Node Configuration'''
 		self.rospy.init_node("plx_security", anonymous = True)		#Node inicialization
 		self.rate = self.rospy.Rate(self.security_rate)				#Node rate configuration
-		self.sonar_offset_front_x = 0.331							#Distance in mm at which the sonar is located
-		self.cmd_vel_x = 0											#Inicialization of velocity value
-		self.vel_insecure = Twist()									#Velocity definition as Twist value linear[x, y, z] angular[x, y, z]
-		self.change = {"lrf_top": False,
-					   "lrf_floor": False,
-					   "sonar": False}				#Variables for validation of new incoming data 
-		self.lrf_top = {"angle_min":0,
-						"angle_max":0,
-						"angle_inc":0,
-						"ranges": [],
-						"offset": 0}				#Attributes of the upper LRF data message
-		self.lrf_floor = {"angle_min": 0,
-						  "angle_max": 0,
-						  "angle_inc": 0,
-						  "ranges": [],
-						  "offset": 0}				#Attributes of the floor LRF data message
 		self.main_security()						#Call of main node function
 	
 	def polar_2_cartesian(self,laser_params):
@@ -114,45 +104,46 @@ class PlxSecurity():
 		return
 	
 	def callback_sonar(self,msg):
-		self.sonar_front_x = {
-							  "left": float(msg.points[0].x)-self.sonar_offset_front_x,
-							  "right": float(msg.points[3].x)-self.sonar_offset_front_x
-							 }
+		self.sonar_front_x = {"left": float(msg.points[0].x)-self.sonar_offset_front_x,
+							  "right": float(msg.points[3].x)-self.sonar_offset_front_x}
 		self.change["sonar"] = True
 		return
 
+	def new_distances(self):
+		v, slw, wdth = self.cmd_vel_x, 0.6, 1.5
+		if v <= 0.4: 
+			slw = 0.8
+			wdth = 1.2
+		elif v <= 0.5: 
+			slw = 1.0
+			wdth = 1.4
+		elif v <= 0.6: 
+			slw = 1.2
+			wdth = 1.5
+		elif v <= 0.8: 
+			slw = 1.4
+			wdth = 2.0
+		else: 
+			slw = 2.0
+			wdth = 3.0
+		return slw, wdth
+
 	def main_security(self):
-		insecure = {
-					"lrf_top": False,
-					"lrf_floor": False,
-					"sonar": False
-				   }
-		dist = {
-				"lrf_top": 0,
-				"lrf_floor": 0,
-				"sonar": 0
-			   }
-		velmax = {
-					"lrf_top": 0,
-					"lrf_floor": 0,
-					"sonar": 0
-			     }
+		insecure = {"lrf_top": False, "lrf_floor": False, "sonar": False}
+		dist = {"lrf_top": 0, "lrf_floor": 0, "sonar": 0}
+		velmax = {"lrf_top": 0,	"lrf_floor": 0, "sonar": 0}
 		
 		while not self.rospy.is_shutdown():
-			rstop = {
-					 "lrf": min(self.slow_distance["lrf"], self.stop_distance["lrf"]),
-					 "sonar": min(self.slow_distance["sonar"], self.stop_distance["sonar"])
-					}
-			rslow = {
-					 "lrf": max(self.slow_distance["lrf"], self.stop_distance["lrf"]),
-					 "sonar": max(self.slow_distance["sonar"], self.stop_distance["sonar"])
-			        }
+			rstop = {"lrf": min(self.slow_distance["lrf"], self.stop_distance["lrf"]),
+					 "sonar": min(self.slow_distance["sonar"], self.stop_distance["sonar"])}
+			rslow = {"lrf": max(self.slow_distance["lrf"], self.stop_distance["lrf"]),
+					 "sonar": max(self.slow_distance["sonar"], self.stop_distance["sonar"])}
 			if self.cmd_vel_x > 0.3:
-				rstop["lrf"] *= self.cmd_vel_x/(0.3/((self.cmd_vel_x*10)-3))
-				rslow["lrf"] *= self.cmd_vel_x/(0.3/((self.cmd_vel_x*10)-3))
+				rslow["lrf"], self.width_ratio = self.new_distances()
 			else:
 				rstop["lrf"] = min(self.slow_distance["lrf"], self.stop_distance["lrf"])
 				rslow["lrf"] = max(self.slow_distance["lrf"], self.stop_distance["lrf"])
+				self.width_ratio = 1.2
 			box_points = {
 					      "top": ((-self.robot_params["l"]/2,-self.width_ratio*self.robot_params["w"]/2),(rslow["lrf"],self.width_ratio*self.robot_params["w"]/2)),
 					      "floor": ((0,-self.width_ratio*self.robot_params["w"]/2),(rslow["lrf"],self.width_ratio*self.robot_params["w"]/2))
