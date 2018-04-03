@@ -1,0 +1,4 @@
+<launch>
+	<node pkg="plx_sexurity" name="security_node" type="security.py" output="screen"/>
+	<node pkg="plx_security" name="switch_node" type="switch.py" output="screen"/>
+</launch>
